@@ -1,0 +1,43 @@
+name: OPA policies Coverage Check
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  opa-coverage-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v3
+
+      - name: Setup OPA
+        uses: open-policy-agent/setup-opa@v2
+        with:
+          version: latest
+
+      - name: Run OPA policy checks
+        run: |
+          echo `opa version`
+          policies=$(find ./policy-as-code/OPA/policy -name "*.rego" | grep -v .utils. | cut -d"." -f2 | sort | uniq)
+          for policy in ${policies}
+          do
+          printf "\nPolicy: \e[0;32m.${policy}.rego\e[0m\n"
+          utils=$(find ./policy-as-code/OPA/policy -name "*.utils.*")
+          target=".${policy}.* $utils"
+          echo $target
+          set -o pipefail
+          opa test $target -v | grep -v ".utils." || exit 1
+          coverage_values=`opa test --coverage $target -v | grep -iE '"coverage": [ 0-9 ]+'`
+          coverage=`printf "${coverage_values}%%\n" | tail -n 1 | xargs`
+          echo $coverage
+
+          if [ "$coverage" != "coverage: 100%" ]; then
+            opa test --coverage $target -v
+            printf "\n\e[0;31mRule test coverage must be 100%%\e[0m\n"
+            exit 1
+          fi;
+          done
+
